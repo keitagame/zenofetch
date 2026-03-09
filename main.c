@@ -1,6 +1,6 @@
 /*
- * cfetch - A neofetch/fastfetch-like system information tool written in C
- * Displays system info alongside an ASCII art logo
+ * cfetch - neofetch/fastfetch-like system info tool in C
+ * Supports many Linux distributions with colored ASCII art logos
  */
 
 #define _GNU_SOURCE
@@ -12,337 +12,843 @@
 #include <sys/sysinfo.h>
 #include <sys/statvfs.h>
 #include <pwd.h>
-#include <time.h>
+#include <ctype.h>
 
-/* ANSI Color Codes */
-#define RESET       "\033[0m"
-#define BOLD        "\033[1m"
-#define BLACK       "\033[30m"
-#define RED         "\033[31m"
-#define GREEN       "\033[32m"
-#define YELLOW      "\033[33m"
-#define BLUE        "\033[34m"
-#define MAGENTA     "\033[35m"
-#define CYAN        "\033[36m"
-#define WHITE       "\033[37m"
-#define BRIGHT_BLACK   "\033[90m"
-#define BRIGHT_RED     "\033[91m"
-#define BRIGHT_GREEN   "\033[92m"
-#define BRIGHT_YELLOW  "\033[93m"
-#define BRIGHT_BLUE    "\033[94m"
-#define BRIGHT_MAGENTA "\033[95m"
-#define BRIGHT_CYAN    "\033[96m"
-#define BRIGHT_WHITE   "\033[97m"
+/* ── ANSI colors ─────────────────────────────────────────────────── */
+#define R    "\033[0m"
+#define BD   "\033[1m"
+#define RED  "\033[31m"
+#define GRN  "\033[32m"
+#define YLW  "\033[33m"
+#define BLU  "\033[34m"
+#define MAG  "\033[35m"
+#define CYN  "\033[36m"
+#define WHT  "\033[37m"
+#define BBLK "\033[90m"
+#define BRED "\033[91m"
+#define BGRN "\033[92m"
+#define BYLW "\033[93m"
+#define BBLU "\033[94m"
+#define BMAG "\033[95m"
+#define BCYN "\033[96m"
+#define BWHT "\033[97m"
 
-/* BG Colors for color blocks */
-#define BG_BLACK   "\033[40m"
-#define BG_RED     "\033[41m"
-#define BG_GREEN   "\033[42m"
-#define BG_YELLOW  "\033[43m"
-#define BG_BLUE    "\033[44m"
-#define BG_MAGENTA "\033[45m"
-#define BG_CYAN    "\033[46m"
-#define BG_WHITE   "\033[47m"
-#define BG_BRIGHT_BLACK   "\033[100m"
-#define BG_BRIGHT_RED     "\033[101m"
-#define BG_BRIGHT_GREEN   "\033[102m"
-#define BG_BRIGHT_YELLOW  "\033[103m"
-#define BG_BRIGHT_BLUE    "\033[104m"
-#define BG_BRIGHT_MAGENTA "\033[105m"
-#define BG_BRIGHT_CYAN    "\033[106m"
-#define BG_BRIGHT_WHITE   "\033[107m"
+/* Background palette */
+#define bg0  "\033[40m"
+#define bg1  "\033[41m"
+#define bg2  "\033[42m"
+#define bg3  "\033[43m"
+#define bg4  "\033[44m"
+#define bg5  "\033[45m"
+#define bg6  "\033[46m"
+#define bg7  "\033[47m"
+#define bg8  "\033[100m"
+#define bg9  "\033[101m"
+#define bg10 "\033[102m"
+#define bg11 "\033[103m"
+#define bg12 "\033[104m"
+#define bg13 "\033[105m"
+#define bg14 "\033[106m"
+#define bg15 "\033[107m"
 
-#define MAX_INFO_LEN 256
-#define MAX_LINES    20
+#define MAX_STR  256
+#define MAX_INFO 18
+
+/* ── Distro IDs ──────────────────────────────────────────────────── */
+typedef enum {
+    DISTRO_UNKNOWN = 0,
+    DISTRO_UBUNTU,
+    DISTRO_DEBIAN,
+    DISTRO_ARCH,
+    DISTRO_MANJARO,
+    DISTRO_FEDORA,
+    DISTRO_CENTOS,
+    DISTRO_RHEL,
+    DISTRO_OPENSUSE,
+    DISTRO_ALPINE,
+    DISTRO_GENTOO,
+    DISTRO_VOID,
+    DISTRO_MINT,
+    DISTRO_POPOS,
+    DISTRO_KALI,
+    DISTRO_ENDEAVOUROS,
+    DISTRO_GARUDA,
+    DISTRO_NIXOS,
+    DISTRO_RASPBIAN,
+    DISTRO_SLACKWARE,
+    DISTRO_MX,
+    DISTRO_ZORIN,
+    DISTRO_ELEMENTARY,
+    DISTRO_COUNT
+} DistroID;
 
 typedef struct {
-    char user[MAX_INFO_LEN];
-    char hostname[MAX_INFO_LEN];
-    char os[MAX_INFO_LEN];
-    char kernel[MAX_INFO_LEN];
-    char uptime[MAX_INFO_LEN];
-    char shell[MAX_INFO_LEN];
-    char cpu[MAX_INFO_LEN];
-    char memory[MAX_INFO_LEN];
-    char disk[MAX_INFO_LEN];
-    char arch[MAX_INFO_LEN];
-    char packages[MAX_INFO_LEN];
-    char terminal[MAX_INFO_LEN];
-} SysInfo;
+    const char **lines;
+    int          count;
+    int          width;
+    const char  *label_color;
+} Logo;
 
-/* Ubuntu ASCII art logo */
-static const char *ubuntu_logo[] = {
-    BRIGHT_RED  "            .-/+oossssoo+/-.",
-    BRIGHT_RED  "        `:+ssssssssssssssssss+:`",
-    BRIGHT_RED  "      -+ssssssssssssssssssyyssss+-",
-    BRIGHT_RED  "    .ossssssssssssssssss" BRIGHT_WHITE "dMMMNy" BRIGHT_RED "sssso.",
-    BRIGHT_RED  "   /sssssssssss" BRIGHT_WHITE "hdmmNNmmyNMMMMh" BRIGHT_RED "ssssss/",
-    BRIGHT_RED  "  +sssssssss" BRIGHT_WHITE "hm" BRIGHT_RED "yd" BRIGHT_WHITE "MMMMMMMNddddy" BRIGHT_RED "ssssssss+",
-    BRIGHT_RED  " /ssssssss" BRIGHT_WHITE "hNMMM" BRIGHT_RED "yh" BRIGHT_WHITE "hyyyyhmNMMMNh" BRIGHT_RED "ssssssss/",
-    BRIGHT_RED  ".ssssssss" BRIGHT_WHITE "dMMMNh" BRIGHT_RED "ssssssssss" BRIGHT_WHITE "hNMMMd" BRIGHT_RED "ssssssss.",
-    BRIGHT_RED  "+ssss" BRIGHT_WHITE "hhhyNMMNy" BRIGHT_RED "ssssssssssss" BRIGHT_WHITE "yNMMMy" BRIGHT_RED "sssssss+",
-    BRIGHT_RED  "oss" BRIGHT_WHITE "yNMMMNyMMh" BRIGHT_RED "ssssssssssss" BRIGHT_WHITE "hmmmh" BRIGHT_RED "ssssssso",
-    BRIGHT_RED  "oss" BRIGHT_WHITE "yNMMMNyMMh" BRIGHT_RED "ssssssssssss" BRIGHT_WHITE "hmmmh" BRIGHT_RED "ssssssso",
-    BRIGHT_RED  "+ssss" BRIGHT_WHITE "hhhyNMMNy" BRIGHT_RED "ssssssssssss" BRIGHT_WHITE "yNMMMy" BRIGHT_RED "sssssss+",
-    BRIGHT_RED  ".ssssssss" BRIGHT_WHITE "dMMMNh" BRIGHT_RED "ssssssssss" BRIGHT_WHITE "hNMMMd" BRIGHT_RED "ssssssss.",
-    BRIGHT_RED  " /ssssssss" BRIGHT_WHITE "hNMMM" BRIGHT_RED "yh" BRIGHT_WHITE "hyyyyhmNMMMNh" BRIGHT_RED "ssssssss/",
-    BRIGHT_RED  "  +sssssssss" BRIGHT_WHITE "dm" BRIGHT_RED "yd" BRIGHT_WHITE "MMMMMMMMddddy" BRIGHT_RED "ssssssss+",
-    BRIGHT_RED  "   /sssssssssss" BRIGHT_WHITE "hdmNNNNmyNMMMMh" BRIGHT_RED "ssssss/",
-    BRIGHT_RED  "    .ossssssssssssssssss" BRIGHT_WHITE "dMMMNy" BRIGHT_RED "sssso.",
-    BRIGHT_RED  "      -+sssssssssssssssssss" BRIGHT_WHITE "yyy" BRIGHT_RED "ssss+-",
-    BRIGHT_RED  "        `:+ssssssssssssssssss+:`",
-    BRIGHT_RED  "            .-/+oossssoo+/-.",
+/* ══════════════════════════════════════════════════════════════════
+   ASCII ART LOGOS
+   ══════════════════════════════════════════════════════════════════ */
+
+/* Ubuntu */
+static const char *logo_ubuntu[] = {
+    BRED "            .-/+oossssoo+/-.",
+    BRED "        `:+ssssssssssssssssss+:`",
+    BRED "      -+ssssssssssssssssssyyssss+-",
+    BRED "    .ossssssssssssssssss" BWHT "dMMMNy" BRED "sssso.",
+    BRED "   /sssssssssss" BWHT "hdmmNNmmyNMMMMh" BRED "ssssss/",
+    BRED "  +sssssssss" BWHT "hm" BRED "yd" BWHT "MMMMMMMNddddy" BRED "ssssssss+",
+    BRED "  /ssssssss" BWHT "hNMMM" BRED "yh" BWHT "hyyyyhmNMMMNh" BRED "ssssssss/",
+    BRED " .ssssssss" BWHT "dMMMNh" BRED "ssssssssss" BWHT "hNMMMd" BRED "ssssssss.",
+    BRED " +ssss" BWHT "hhhyNMMNy" BRED "ssssssssssss" BWHT "yNMMMy" BRED "sssssss+",
+    BRED " oss" BWHT "yNMMMNyMMh" BRED "ssssssssssss" BWHT "hmmmh" BRED "ssssssso",
+    BRED " oss" BWHT "yNMMMNyMMh" BRED "ssssssssssss" BWHT "hmmmh" BRED "ssssssso",
+    BRED " +ssss" BWHT "hhhyNMMNy" BRED "ssssssssssss" BWHT "yNMMMy" BRED "sssssss+",
+    BRED " .ssssssss" BWHT "dMMMNh" BRED "ssssssssss" BWHT "hNMMMd" BRED "ssssssss.",
+    BRED "  /ssssssss" BWHT "hNMMM" BRED "yh" BWHT "hyyyyhmNMMMNh" BRED "ssssssss/",
+    BRED "  +sssssssss" BWHT "dm" BRED "yd" BWHT "MMMMMMMMddddy" BRED "ssssssss+",
+    BRED "   /sssssssssss" BWHT "hdmNNNNmyNMMMMh" BRED "ssssss/",
+    BRED "    .ossssssssssssssssss" BWHT "dMMMNy" BRED "sssso.",
+    BRED "      -+sssssssssssssssssss" BWHT "yyy" BRED "ssss+-",
+    BRED "        `:+ssssssssssssssssss+:`",
+    BRED "            .-/+oossssoo+/-.",
 };
 
-static const int logo_lines = 20;
+/* Debian */
+static const char *logo_debian[] = {
+    RED "        ,,.",
+    RED "       ,   ,c,",
+    RED "     . l,  \" '",
+    RED "     ; 9  ,,, ;",
+    RED "     . \"      '",
+    RED "      ',d8888b.",
+    RED "      d88888888b",
+    RED "     d88888888888",
+    RED "    d8888888888888",
+    RED "   d8888888888888;",
+    RED "   98888888888888:",
+    RED "   `8888888888888b",
+    RED "    \"888888888888b.",
+    RED "     `98888888888:",
+    RED "       \"888888888\"",
+    RED "        `8888888'",
+    RED "          \"\"\"\"\"\"",
+};
 
-/* Read first line of a file */
-static int read_first_line(const char *path, char *buf, size_t size) {
-    FILE *f = fopen(path, "r");
-    if (!f) return -1;
-    if (!fgets(buf, size, f)) { fclose(f); return -1; }
-    fclose(f);
-    /* strip newline */
-    size_t len = strlen(buf);
-    if (len > 0 && buf[len-1] == '\n') buf[len-1] = '\0';
-    return 0;
+/* Arch Linux */
+static const char *logo_arch[] = {
+    BCYN "                  -`",
+    BCYN "                 .o+`",
+    BCYN "                `ooo/",
+    BCYN "               `+oooo:",
+    BCYN "              `+oooooo:",
+    BCYN "              -+oooooo+:",
+    BCYN "            `/:-:++oooo+:",
+    BCYN "           `/++++/+++++++:",
+    BCYN "          `/++++++++++++++:",
+    BCYN "         `/+++o" CYN "oooooooo" BCYN "oooo/`",
+    BCYN "        " CYN ".//oooooooooooooooooo+`",
+    BCYN "       " CYN "/oooooooooooooooooooo+`",
+    BCYN "      " CYN ".ooooooooooooooooooooo+",
+    BCYN "     " CYN ".+ooooooooooooooooooooooo",
+    BCYN "    `+oooooooooooooooooooooo",
+    BCYN "   `+oooooooooooooooooooo+.",
+    BCYN "  .ooooooooooooooooooo+.",
+    BCYN " .++ooooooooooooooo+.",
+    BCYN "`++++++++++++++",
+};
+
+/* Manjaro */
+static const char *logo_manjaro[] = {
+    BGRN "||||||||| ||||",
+    BGRN "||||||||| ||||",
+    BGRN "||||      ||||",
+    BGRN "|||| |||| ||||",
+    BGRN "|||| |||| ||||",
+    BGRN "|||| |||| ||||",
+    BGRN "||||      ||||",
+    BGRN "|||| |||| ||||",
+    BGRN "|||| |||| ||||",
+    BGRN "|||| |||| ||||",
+};
+
+/* Fedora */
+static const char *logo_fedora[] = {
+    BBLU "          /:-------------:\\",
+    BBLU "       :-------------------:::",
+    BBLU "     :-----------" BWHT "/shhOHbmp" BBLU "---:\\",
+    BBLU "   /-----------" BWHT "omMMMNNNMMD" BBLU "  ---:",
+    BBLU "  :-----------" BWHT "sMMMMNMNMP" BBLU "        :\\",
+    BBLU " :-----------" BWHT ":MMMdP" BBLU "------------:",
+    BBLU ",------------" BWHT ":MMMd" BBLU "-------------, \\",
+    BBLU ":---   " BWHT "mMMM" BBLU "-----------------------:",
+    BBLU ":------ " BWHT "mMMM" BBLU "--------------------,",
+    BBLU ":-------- " BWHT "MMMMm" BBLU "------------------:",
+    BBLU ":---------- " BWHT "MMMMm" BBLU "----------------:",
+    BBLU ":----------- " BWHT ":MMMMm" BBLU "-------------:",
+    BBLU ":------------ " BWHT ":MMMMMm" BBLU "-----------:",
+    BBLU ":--------------" BWHT ":MMMMMm" BBLU "---------:",
+    BBLU ":--------------- " BWHT ":MMMMMm" BBLU "------:",
+    BBLU " :--------------- " BWHT ":MMMMm" BBLU "----:",
+    BBLU "  `:----- " BWHT "mMMMMm" BBLU "-" BWHT "mmMMMm" BBLU "---:'",
+    BBLU "     `------" BWHT "mMMMMMMMMm" BBLU "------'",
+    BBLU "        `------" BWHT "mMMm" BBLU "------'",
+};
+
+/* CentOS */
+static const char *logo_centos[] = {
+    BYLW "                 ____",
+    BYLW "             .--" GRN "/////" BYLW "--.",
+    BYLW "           ." GRN "////" BYLW "xx" GRN "////" BYLW ".",
+    BYLW "          /" GRN "///" BYLW "xxxxxx" GRN "///" BYLW "/",
+    BYLW "        /" GRN "///" BYLW "xx" MAG "/////" GRN "xx" BYLW "///\\",
+    BYLW "       |" GRN "//" BYLW "xx" MAG "////////" GRN "xx" BYLW "//|",
+    BYLW "       |" MAG "////" BYLW "xx" GRN "/////" MAG "xx////" BYLW "|",
+    BYLW "       |" MAG "//////" BYLW "xx" GRN "//" MAG "xx//////" BYLW "|",
+    BYLW "       |" MAG "////////" BYLW "xx" MAG "////////" BYLW "|",
+    BYLW "        \\" MAG "///" BYLW "xx" GRN "/////" MAG "xx" BYLW "///",
+    BYLW "         \\" MAG "//" BYLW "xxxxxx" GRN "////" BYLW "\\",
+    BYLW "          \\." GRN "////" BYLW "xx" GRN "////" BYLW "./",
+    BYLW "            `." GRN "/////" BYLW ".'",
+    BYLW "               `---'",
+};
+
+/* openSUSE */
+static const char *logo_opensuse[] = {
+    BGRN "           .;ldkO0000Okdl;.",
+    BGRN "       .;d00xl:^''''''^:ok00d;.",
+    BGRN "     .d00l'                'o00d.",
+    BGRN "   .d0Kd'  Okxol:;,.         :O0d.",
+    BGRN "  .OKKKK0kOKKKKKKKKKKOxo:,    lKO.",
+    BGRN " ,0KKKKKKKKKKKKKKKK0P^         ;00,",
+    BGRN ".OKKKKKKKKKKKKKKK0P^           xKO,",
+    BGRN ":KKKKKKKKKKKKKKKK0o;          OK0,",
+    BGRN "dKKKKKKKKKKKOx0KKKKKKd,      .0K0d,",
+    BGRN "dKKKKKKKKKd'  .;okOKK0kl.  ,0K0KK0:",
+    BGRN "OKKKKKKKK0.       .;oO0K00KKKKKKKKKx",
+    BGRN "xKKKKKKKKK0kl,.    .ldk0KKKKKKKKKK0:",
+    BGRN ".kKKKKKKKKKKKK0kxoodkOK00KKKKKKKK0l",
+    BGRN " 'OK0KKKKKKKKKKKKKKKKKK0000000Okl.",
+    BGRN "   'O0KKKKKKKKKKKKKKKK0Kd^",
+    BGRN "     .oOOKKKKKKKKKKKKKKKd.",
+    BGRN "        .:ldxxddol:;.",
+};
+
+/* Alpine */
+static const char *logo_alpine[] = {
+    BBLU "       /\\ /\\",
+    BBLU "      /  V  \\",
+    BBLU "     /  (*)  \\",
+    BBLU "    / /-   -\\ \\",
+    BBLU "   /  |     |  \\",
+    BBLU "  /   | /|\\ |   \\",
+    BBLU " /    |/ | \\|    \\",
+    BBLU "/_____|   |______\\",
+};
+
+/* Gentoo */
+static const char *logo_gentoo[] = {
+    BMAG "         -/oyddmdhs+:",
+    BMAG "      -smMMMMMMMMMMMMMMys:",
+    BMAG "   .omMMMMMMMMMMMMMMMMMMMMmo.",
+    BMAG "  /MMMMMMMMMMMMMMMMMMMMMMMMMMm/",
+    BMAG " oMMMMMMMMMMMMMMMMMMMMMMMMMMMMMo",
+    BMAG ".MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM.",
+    BMAG "OMMMMMMMM" BWHT "MMMMMMMM" BMAG "MMMMMMMMMMMMMMMO",
+    BMAG "OMMMMMMMM" BWHT "MMMMMMMM" BMAG "MMMMMMMMMMMMMMMO",
+    BMAG ".MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM.",
+    BMAG " oMMMMMMMMMMMMMMMMMMMMMMMMMMMMMo",
+    BMAG "  /MMMMMMMMMMMMMMMMMMMMMMMMMMm/",
+    BMAG "   .omMMMMMMMMMMMMMMMMMMMMmo.",
+    BMAG "      -smMMMMMMMMMMMMMMys:",
+    BMAG "         -/oyddmdhs+:",
+};
+
+/* Void Linux */
+static const char *logo_void[] = {
+    BGRN "   _______",
+    BGRN "   \\______ \\",
+    BGRN "    |  |  \\ \\",
+    BGRN "    | /" BWHT " \\ " BGRN "\\ \\",
+    BGRN "    |/" BWHT "   \\" BGRN "\\ \\",
+    BGRN "    |" BWHT "  ___" BGRN "\\ \\",
+    BGRN "    |" BWHT " /    \\" BGRN "/ /",
+    BGRN "    |" BWHT "/  /\\ " BGRN "/ /",
+    BGRN "    |____/ / /",
+    BGRN "    /_____/ /",
+    BGRN "    \\_______/",
+};
+
+/* Linux Mint */
+static const char *logo_mint[] = {
+    BGRN " MMMMMMMMMMMMMMMMMMMMMMMMMmds+.",
+    BGRN " MMm----::-://////////////oymNMd+`",
+    BGRN " MMd      " BWHT "/++                " BGRN "-sNMd:",
+    BGRN " MMNso/`  " BWHT "dMM    `.::-. .-::.`" BGRN " .hMN:",
+    BGRN " ddddMMh  " BWHT "dMM   :hNMNMNhNMNMNh:" BGRN " `NMm",
+    BGRN "     NMm  " BWHT "dMM  .NMN/-+MMM+-/NMN`" BGRN " dMM",
+    BGRN "     NMm  " BWHT "dMM  -MMm  `MMM   dMM." BGRN " dMM",
+    BGRN "     NMm  " BWHT "dMM  .mmd  `mmm   yMM." BGRN " dMM",
+    BGRN "     NMm  " BWHT "dMM`  ..-   ...   ydm." BGRN " dMM",
+    BGRN "     hMM- " BWHT "+MMd/-------...-:sdds  " BGRN "dMM",
+    BGRN "     -NMm- " BWHT ":hNMNNNmdddddddddy/`  " BGRN "dMM",
+    BGRN "      -dMNs-" BWHT "``-::::-------.``    " BGRN "dMM",
+    BGRN "        `/dMNmy+/:-------------:/yMMM",
+    BGRN "           ./ydNMMMMMMMMMMMMMMMMMMMMM",
+    BGRN "              .MMMMMMMMMMMMMMMMMMM",
+};
+
+/* Pop!_OS */
+static const char *logo_popos[] = {
+    BCYN "             /////////////",
+    BCYN "         /////////////////////",
+    BCYN "      ///////" BWHT "*767" BCYN "///////////////",
+    BCYN "    //////" BWHT "7676767676*" BCYN "//////////",
+    BCYN "   /////" BWHT "76767" BCYN "/////(" BWHT "7676767" BCYN "////",
+    BCYN "  /////" BWHT "767676" BCYN "///////////////////",
+    BCYN " /////" BWHT "7676767676" BCYN "////////////////",
+    BCYN " ////" BWHT "767676767676" BCYN "////" BWHT "76767" BCYN "///",
+    BCYN " ///" BWHT "76767676767676" BCYN "///" BWHT "7676" BCYN "////",
+    BCYN " ///" BWHT "76767676767676" BCYN "///" BWHT "7676" BCYN "////",
+    BCYN " ////" BWHT "7676767676" BCYN "////////////",
+    BCYN "  /////" BWHT "7676767" BCYN "/////////////",
+    BCYN "   /////(" BWHT "7676" BCYN "//////////////",
+    BCYN "    ///////" BWHT "7676" BCYN "/////////",
+    BCYN "       ///////" BWHT "*" BCYN "////////",
+    BCYN "         ///////////////",
+    BCYN "            /////////",
+};
+
+/* Kali Linux */
+static const char *logo_kali[] = {
+    BBLU "...............",
+    BBLU "..,;:ccccccc:;,.",
+    BBLU ".,ccccccccccccccc:.",
+    BBLU ".;ccccccccccccccccccc;.",
+    BBLU ".:ccccccccccccc;" BWHT "oooooooc" BBLU ":.",
+    BBLU ".:cccccccccccc;" BWHT "OMMMMMMMMo" BBLU ":.",
+    BBLU ".;ccccccccccc;" BWHT "OMMMMMMMMMO" BBLU ";.",
+    BBLU ".;cccccccccc;" BWHT "OMMMMMMMMMMMO" BBLU ";.",
+    BBLU ".;ccccccccc;" BWHT "OMMMMMdMMMMMMMO" BBLU ";.",
+    BBLU ".;cccccccc;" BWHT "oMMMMMd:dMMMMMMMo" BBLU ";.",
+    BBLU ".;cccccc;.  " BWHT ":MMMMd:  :dMMMMMo" BBLU " .;.",
+    BBLU ".:ccc:.     " BWHT " :d:.     :dMMMo" BBLU "   .:.",
+    BBLU ".''.          '.       '.''",
+};
+
+/* EndeavourOS */
+static const char *logo_endeavouros[] = {
+    BMAG "                     ./{}\\.",
+    BMAG "                    //{" BRED "|" BMAG "}\\\\",
+    BMAG "                   //{" BRED "||" BMAG "}\\\\",
+    BMAG "                  //{" BRED "|||" BMAG "}\\\\",
+    BMAG "                 //{" BRED "||||" BMAG "}\\\\",
+    BMAG "                //{" BRED "|||||" BMAG "}\\\\",
+    BMAG "               //{" BRED "||||||" BMAG "}\\\\",
+    BMAG "              //{" BRED "|||||||" BMAG "}\\\\",
+    BMAG "             //{" BRED "||||||||" BMAG "}\\\\",
+    BMAG "            //{" BRED "|||||||||" BMAG "}\\\\",
+    BMAG "           //{" BRED "||||||||||" BMAG "}\\\\",
+    BMAG "          //{" BRED "|||||||||||" BMAG "}\\\\",
+    BMAG "         //{" BRED "||||||||||||" BMAG "}\\\\",
+    BMAG "        //{" BRED "|||||||||||||" BMAG "}\\\\",
+    BMAG "       //{" BRED "||||||||||||||" BMAG "}\\\\",
+    BMAG "      //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\\\\",
+};
+
+/* NixOS */
+static const char *logo_nixos[] = {
+    BBLU "          \\\\  \\\\ //",
+    BBLU "         ==\\\\--\\\\/ //",
+    BBLU "           //   \\\\//",
+    BBLU "        ==//     //==",
+    BBLU "         //\\\\   //",
+    BBLU "        // \\\\  //==",
+    BBLU "           \\\\ //",
+    BBLU "         ==/\\\\ //\\\\",
+    BBLU "            // //\\\\",
+    BBLU "         ==// //==",
+    BBLU "           ///",
+    BBLU "        ==//",
+};
+
+/* Garuda */
+static const char *logo_garuda[] = {
+    BRED "                  .^.",
+    BRED "                 /W{\\",
+    BRED "                /WW{\\\\",
+    BRED "               /WWW{\\\\\\",
+    BRED "              /WWWW{\\\\\\\\",
+    BRED "             /WWWWW{\\\\\\\\\\",
+    BRED "            /WWWWWW{\\\\\\\\\\\\",
+    BRED "           /WWWWWWW{\\\\\\\\\\\\\\",
+    BRED "          /WWWWWWWW{\\\\\\\\\\\\\\\\",
+    BRED "         /WWWWWWWWW{\\\\\\\\\\\\\\\\\\",
+    BRED "        .WWWWWWWWWW{\\\\\\\\\\\\\\\\\\\\",
+    BRED "        `----------'",
+};
+
+/* Raspbian */
+static const char *logo_raspbian[] = {
+    BRED "  .~~.   .~~.",
+    BRED " '. \\ ' ' / .'",
+    RED  "  .~ .~~~..~.",
+    RED  " : .~.'~'.~. :",
+    RED  "~ (   ) (   ) ~",
+    RED  "( : '~'.~.'~' : )",
+    RED  " ~ .~ (   ) ~. ~",
+    RED  "  (  : '~' :  )",
+    RED  "   '~ .~~~. ~'",
+    RED  "       '~'",
+};
+
+/* MX Linux */
+static const char *logo_mx[] = {
+    BWHT "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMNNMMMMM",
+    BWHT "MMMMMMMMMMNs..yMMMMMMMMMMMMm: +MMMMM",
+    BWHT "MMMMMMMMMM+   :NMMMMMMMMMMs  .MMMMM",
+    BWHT "MMMMMMMMMm.    oMMMMMMMMMy.   oMMMM",
+    BWHT "MMMMMMMMMy      sMMMMMMMo     -MMMM",
+    BWHT "MMMMMMMMm.      .NMMMMMy       hMMM",
+    BWHT "MMMMMMMMo         hMMMm.       /MMM",
+    BWHT "MMMMMMMN.         .MMM-         NMM",
+    BWHT "MMMMMMMy           :h.          oMM",
+    BWHT "MMMMMMM`                         NM",
+    BWHT "MMMMMMs             .            /M",
+    BWHT "MMMMMN`            /o.            M",
+    BWHT "MMMMm-           `oMs.           `N",
+    BWHT "MMMMo          .yMMMMs            y",
+    BWHT "MMMy          sMMMMMMd.           :",
+    BWHT "MMN`        .mMMMMMMMMs            ",
+};
+
+/* Slackware */
+static const char *logo_slackware[] = {
+    BBLU "   ________  ___.",
+    BBLU "  /        \\|   |",
+    BBLU " /  ______ /|   |",
+    BBLU " \\_____   \\/ |   |",
+    BBLU "  \\     \\   |   |",
+    BBLU "  |      \\  |   |",
+    BBLU "  |_______|\\|___|",
+    BBLU "  Slackware",
+};
+
+/* Zorin OS */
+static const char *logo_zorin[] = {
+    BBLU "        `osssssssssssssssssssso`",
+    BBLU "       .osssssssssssssssssssssso.",
+    BBLU "      .+yyyyyyyyyyyyyyyyyyyyyyyyo+.",
+    BBLU "    `:+yyyyyyyyyyyyyyyyyyyyyyyyyyy+:`",
+    BBLU "   :oyyy+" BWHT "hhhhhhhhhhhhhhhhhhhhh" BBLU "+yyyo:",
+    BBLU "  :oyyy+" BWHT "hhhhhhhhhhhhhhhhhhhhhhh" BBLU "+yyyo:",
+    BBLU " :oyyyyy+hhh" BWHT "hhhhhhhhhhhhhhhh" BBLU "hhh+yyyyy:",
+    BBLU " :oyyyyy+hhh" BWHT "hhhhhhhhhhhhhhhh" BBLU "hhh+yyyyy:",
+    BBLU "  :oyyyy+" BWHT "hhhhhhhhhhhhhhhhhhhhhh" BBLU "+yyyy:",
+    BBLU "   `:+yyy+" BWHT "hhhhhhhhhhhhhhhhhhhh" BBLU "+yyy+:`",
+    BBLU "     `:+yyyyyyyyyyyyyyyyyyyyyyy+:`",
+    BBLU "       `.+yyyyyyyyyyyyyyyyyyy+.`",
+    BBLU "          `osssssssssssssso`",
+};
+
+/* elementary OS */
+static const char *logo_elementary[] = {
+    BBLU "         eeeeeeeeeeeeeee",
+    BBLU "      eeeeeeeeeeeeeeeeeeeee",
+    BBLU "    eeeee  eeeeeeeeeeee   eeeee",
+    BBLU "  eeee   eeeee       eeeee   eeee",
+    BBLU " eeee   eeee           eeee   eeee",
+    BBLU "eee    eee               eee    eee",
+    BBLU "eee   eee                 eee   eee",
+    BBLU "ee    eee                 eee    ee",
+    BBLU "ee    eee                 eee    ee",
+    BBLU "eee   eee                 eee   eee",
+    BBLU "eee    eee               eee    eee",
+    BBLU " eeee   eeee           eeee   eeee",
+    BBLU "  eeee   eeeee       eeeee   eeee",
+    BBLU "    eeeee  eeeeeeeeeeee  eeeee",
+    BBLU "      eeeeeeeeeeeeeeeeeeeee",
+    BBLU "         eeeeeeeeeeeeeee",
+};
+
+/* Unknown / Generic Linux */
+static const char *logo_unknown[] = {
+    BWHT "        #####",
+    BWHT "       #######",
+    BWHT "       ##" BBLK "O" BWHT "#" BBLK "O" BWHT "##",
+    BWHT "       #" BYLW "#####" BWHT "#",
+    BWHT "     ##" BWHT "##" BYLW "###" BWHT "##" BWHT "##",
+    BWHT "    #" BWHT "##########" BWHT "##",
+    BWHT "   #" BWHT "############" BWHT "##",
+    BWHT "   #" BWHT "############" BWHT "###",
+    BWHT "  ##" BYLW "#" BWHT "###########" BWHT "##" BYLW "#",
+    BWHT "######" BYLW "#" BWHT "#######" BYLW "#" BWHT "######",
+    BWHT " #" BYLW "####" BWHT "#######" BYLW "#####" BWHT "#",
+    BWHT "  " BYLW "####" BWHT "#######" BYLW "#####",
+    BWHT "    " BYLW "####" BWHT "#####" BYLW "###",
+    BWHT "      " BYLW "##########",
+    BWHT "       " BYLW "########",
+};
+
+/* ── Logo table ──────────────────────────────────────────────────── */
+#define NLINES(a) ((int)(sizeof(a)/sizeof(a[0])))
+#define LOGO(id, arr, w, col) \
+    [id] = { (arr), NLINES(arr), (w), (col) }
+
+static const Logo logos[DISTRO_COUNT] = {
+    LOGO(DISTRO_UNKNOWN,     logo_unknown,     22, BWHT),
+    LOGO(DISTRO_UBUNTU,      logo_ubuntu,      45, BRED),
+    LOGO(DISTRO_DEBIAN,      logo_debian,      18, RED),
+    LOGO(DISTRO_ARCH,        logo_arch,        36, BCYN),
+    LOGO(DISTRO_MANJARO,     logo_manjaro,     14, BGRN),
+    LOGO(DISTRO_FEDORA,      logo_fedora,      36, BBLU),
+    LOGO(DISTRO_CENTOS,      logo_centos,      26, BYLW),
+    LOGO(DISTRO_RHEL,        logo_centos,      26, BRED),
+    LOGO(DISTRO_OPENSUSE,    logo_opensuse,    44, BGRN),
+    LOGO(DISTRO_ALPINE,      logo_alpine,      18, BBLU),
+    LOGO(DISTRO_GENTOO,      logo_gentoo,      36, BMAG),
+    LOGO(DISTRO_VOID,        logo_void,        20, BGRN),
+    LOGO(DISTRO_MINT,        logo_mint,        40, BGRN),
+    LOGO(DISTRO_POPOS,       logo_popos,       29, BCYN),
+    LOGO(DISTRO_KALI,        logo_kali,        34, BBLU),
+    LOGO(DISTRO_ENDEAVOUROS, logo_endeavouros, 32, BMAG),
+    LOGO(DISTRO_GARUDA,      logo_garuda,      28, BRED),
+    LOGO(DISTRO_NIXOS,       logo_nixos,       22, BBLU),
+    LOGO(DISTRO_RASPBIAN,    logo_raspbian,    18, BRED),
+    LOGO(DISTRO_SLACKWARE,   logo_slackware,   18, BBLU),
+    LOGO(DISTRO_MX,          logo_mx,          36, BWHT),
+    LOGO(DISTRO_ZORIN,       logo_zorin,       36, BBLU),
+    LOGO(DISTRO_ELEMENTARY,  logo_elementary,  25, BBLU),
+};
+
+/* ══════════════════════════════════════════════════════════════════
+   DISTRO DETECTION
+   ══════════════════════════════════════════════════════════════════ */
+
+static void str_lower(char *s) {
+    for (; *s; s++) *s = (char)tolower((unsigned char)*s);
 }
 
-/* Run a command and get first line of output */
+static DistroID detect_distro(char *id_out, size_t id_len) {
+    FILE *f = fopen("/etc/os-release", "r");
+    if (!f) {
+        strncpy(id_out, "unknown", id_len - 1);
+        id_out[id_len-1] = '\0';
+        return DISTRO_UNKNOWN;
+    }
+
+    char line[256], id_str[64]="", like_str[64]="";
+    while (fgets(line, sizeof(line), f)) {
+        size_t l = strlen(line);
+        if (l > 0 && line[l-1] == '\n') line[l-1] = '\0';
+        char tmp[64];
+        if (strncmp(line, "ID=", 3) == 0) {
+            char *v = line + 3;
+            if (*v == '"') sscanf(v, "\"%63[^\"]\"", tmp);
+            else           sscanf(v, "%63[^\n]", tmp);
+            strncpy(id_str, tmp, 63);
+        } else if (strncmp(line, "ID_LIKE=", 8) == 0) {
+            char *v = line + 8;
+            if (*v == '"') sscanf(v, "\"%63[^\"]\"", tmp);
+            else           sscanf(v, "%63[^\n]", tmp);
+            strncpy(like_str, tmp, 63);
+        }
+    }
+    fclose(f);
+
+    strncpy(id_out, id_str, id_len - 1);
+    id_out[id_len-1] = '\0';
+
+    char id_lc[64], like_lc[64];
+    strncpy(id_lc,   id_str,   63);   id_lc[63]   = '\0';
+    strncpy(like_lc, like_str, 63);   like_lc[63] = '\0';
+    str_lower(id_lc);
+    str_lower(like_lc);
+
+    /* Primary ID match table */
+    static const struct { const char *key; DistroID val; } tbl[] = {
+        { "ubuntu",              DISTRO_UBUNTU      },
+        { "debian",              DISTRO_DEBIAN      },
+        { "arch",                DISTRO_ARCH        },
+        { "manjaro",             DISTRO_MANJARO     },
+        { "fedora",              DISTRO_FEDORA      },
+        { "centos",              DISTRO_CENTOS      },
+        { "rhel",                DISTRO_RHEL        },
+        { "opensuse",            DISTRO_OPENSUSE    },
+        { "opensuse-leap",       DISTRO_OPENSUSE    },
+        { "opensuse-tumbleweed", DISTRO_OPENSUSE    },
+        { "sles",                DISTRO_OPENSUSE    },
+        { "alpine",              DISTRO_ALPINE      },
+        { "gentoo",              DISTRO_GENTOO      },
+        { "void",                DISTRO_VOID        },
+        { "linuxmint",           DISTRO_MINT        },
+        { "pop",                 DISTRO_POPOS       },
+        { "kali",                DISTRO_KALI        },
+        { "endeavouros",         DISTRO_ENDEAVOUROS },
+        { "garuda",              DISTRO_GARUDA      },
+        { "nixos",               DISTRO_NIXOS       },
+        { "raspbian",            DISTRO_RASPBIAN    },
+        { "slackware",           DISTRO_SLACKWARE   },
+        { "mx",                  DISTRO_MX          },
+        { "zorin",               DISTRO_ZORIN       },
+        { "elementary",          DISTRO_ELEMENTARY  },
+        /* common derivatives */
+        { "kubuntu",             DISTRO_UBUNTU      },
+        { "lubuntu",             DISTRO_UBUNTU      },
+        { "xubuntu",             DISTRO_UBUNTU      },
+        { "ubuntu-mate",         DISTRO_UBUNTU      },
+        { "neon",                DISTRO_UBUNTU      },
+        { "pureos",              DISTRO_DEBIAN      },
+        { "lmde",                DISTRO_MINT        },
+        { "antergos",            DISTRO_ARCH        },
+        { "blackarch",           DISTRO_ARCH        },
+        { "artix",               DISTRO_ARCH        },
+        { "arcolinux",           DISTRO_ARCH        },
+        { "scientific",          DISTRO_CENTOS      },
+        { "ol",                  DISTRO_RHEL        },
+        { "almalinux",           DISTRO_RHEL        },
+        { "rocky",               DISTRO_RHEL        },
+        { NULL, 0 }
+    };
+
+    for (int i = 0; tbl[i].key; i++)
+        if (strcmp(id_lc, tbl[i].key) == 0)
+            return tbl[i].val;
+
+    /* ID_LIKE fallback */
+    if (strstr(like_lc, "ubuntu"))  return DISTRO_UBUNTU;
+    if (strstr(like_lc, "debian"))  return DISTRO_DEBIAN;
+    if (strstr(like_lc, "arch"))    return DISTRO_ARCH;
+    if (strstr(like_lc, "fedora"))  return DISTRO_FEDORA;
+    if (strstr(like_lc, "rhel"))    return DISTRO_RHEL;
+    if (strstr(like_lc, "suse"))    return DISTRO_OPENSUSE;
+
+    return DISTRO_UNKNOWN;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   SYSTEM INFO
+   ══════════════════════════════════════════════════════════════════ */
+
+typedef struct {
+    char user[MAX_STR];
+    char hostname[MAX_STR];
+    char os[MAX_STR];
+    char kernel[MAX_STR];
+    char uptime[MAX_STR];
+    char shell[MAX_STR];
+    char cpu[MAX_STR];
+    char memory[MAX_STR];
+    char disk[MAX_STR];
+    char arch[MAX_STR];
+    char packages[MAX_STR];
+    char terminal[MAX_STR];
+    char distro_id[64];
+    DistroID distro;
+} SysInfo;
+
 static int run_cmd(const char *cmd, char *buf, size_t size) {
     FILE *f = popen(cmd, "r");
     if (!f) return -1;
-    if (!fgets(buf, size, f)) { pclose(f); return -1; }
+    int ok = (fgets(buf, (int)size, f) != NULL);
     pclose(f);
-    size_t len = strlen(buf);
-    if (len > 0 && buf[len-1] == '\n') buf[len-1] = '\0';
+    if (!ok) return -1;
+    size_t l = strlen(buf);
+    if (l > 0 && buf[l-1] == '\n') buf[l-1] = '\0';
     return 0;
 }
 
-static void get_username(SysInfo *info) {
+static void get_user(SysInfo *s) {
     struct passwd *pw = getpwuid(getuid());
-    if (pw) strncpy(info->user, pw->pw_name, MAX_INFO_LEN - 1);
-    else strncpy(info->user, "unknown", MAX_INFO_LEN - 1);
+    strncpy(s->user, pw ? pw->pw_name : "user", MAX_STR - 1);
+    s->user[MAX_STR-1] = '\0';
 }
 
-static void get_hostname(SysInfo *info) {
-    if (gethostname(info->hostname, MAX_INFO_LEN - 1) != 0)
-        strncpy(info->hostname, "unknown", MAX_INFO_LEN - 1);
+static void get_hostname(SysInfo *s) {
+    if (gethostname(s->hostname, MAX_STR - 1) != 0)
+        strncpy(s->hostname, "localhost", MAX_STR - 1);
+    s->hostname[MAX_STR-1] = '\0';
 }
 
-static void get_os(SysInfo *info) {
-    char line[MAX_INFO_LEN];
+static void get_os(SysInfo *s) {
     FILE *f = fopen("/etc/os-release", "r");
-    if (!f) { strncpy(info->os, "Unknown OS", MAX_INFO_LEN - 1); return; }
-    char name[128] = "", version[128] = "";
+    if (!f) { strncpy(s->os, "Linux", MAX_STR - 1); return; }
+    char line[256], pretty[128]="";
     while (fgets(line, sizeof(line), f)) {
-        if (strncmp(line, "NAME=", 5) == 0) {
-            sscanf(line + 5, "\"%127[^\"]\"", name);
-            if (name[0] == '\0') sscanf(line + 5, "%127[^\n]", name);
-        } else if (strncmp(line, "VERSION=", 8) == 0) {
-            sscanf(line + 8, "\"%127[^\"]\"", version);
-            if (version[0] == '\0') sscanf(line + 8, "%127[^\n]", version);
+        char tmp[128];
+        if (strncmp(line, "PRETTY_NAME=", 12) == 0) {
+            if (sscanf(line+12, "\"%127[^\"]\"", tmp) == 1 ||
+                sscanf(line+12, "%127[^\n]",    tmp) == 1)
+                strncpy(pretty, tmp, 127);
+            break;
         }
     }
     fclose(f);
-    snprintf(info->os, MAX_INFO_LEN, "%s %s", name, version);
+    snprintf(s->os, MAX_STR, "%s", pretty[0] ? pretty : "Linux");
 }
 
-static void get_kernel(SysInfo *info) {
-    struct utsname uts;
-    if (uname(&uts) == 0)
-        snprintf(info->kernel, MAX_INFO_LEN, "%s", uts.release);
-    else
-        strncpy(info->kernel, "unknown", MAX_INFO_LEN - 1);
+static void get_kernel(SysInfo *s) {
+    struct utsname u;
+    if (uname(&u) == 0) snprintf(s->kernel, MAX_STR, "%s", u.release);
+    else strncpy(s->kernel, "unknown", MAX_STR - 1);
 }
 
-static void get_arch(SysInfo *info) {
-    struct utsname uts;
-    if (uname(&uts) == 0)
-        snprintf(info->arch, MAX_INFO_LEN, "%s", uts.machine);
-    else
-        strncpy(info->arch, "x86_64", MAX_INFO_LEN - 1);
+static void get_arch(SysInfo *s) {
+    struct utsname u;
+    if (uname(&u) == 0) snprintf(s->arch, MAX_STR, "%s", u.machine);
+    else strncpy(s->arch, "x86_64", MAX_STR - 1);
 }
 
-static void get_uptime(SysInfo *info) {
+static void get_uptime(SysInfo *s) {
     struct sysinfo si;
-    if (sysinfo(&si) != 0) { strncpy(info->uptime, "unknown", MAX_INFO_LEN-1); return; }
+    if (sysinfo(&si) != 0) { strncpy(s->uptime, "unknown", MAX_STR-1); return; }
     long up = si.uptime;
-    int days    = up / 86400;
-    int hours   = (up % 86400) / 3600;
-    int minutes = (up % 3600) / 60;
-    if (days > 0)
-        snprintf(info->uptime, MAX_INFO_LEN, "%d days, %d hours, %d mins", days, hours, minutes);
-    else if (hours > 0)
-        snprintf(info->uptime, MAX_INFO_LEN, "%d hours, %d mins", hours, minutes);
-    else
-        snprintf(info->uptime, MAX_INFO_LEN, "%d mins", minutes);
+    int d=(int)(up/86400), h=(int)((up%86400)/3600), m=(int)((up%3600)/60);
+    if (d > 0)      snprintf(s->uptime, MAX_STR, "%dd %dh %dm", d, h, m);
+    else if (h > 0) snprintf(s->uptime, MAX_STR, "%dh %dm", h, m);
+    else            snprintf(s->uptime, MAX_STR, "%dm", m);
 }
 
-static void get_shell(SysInfo *info) {
+static void get_shell(SysInfo *s) {
     const char *sh = getenv("SHELL");
-    if (sh) {
-        /* Get just the name and version */
-        const char *base = strrchr(sh, '/');
-        base = base ? base + 1 : sh;
-        char ver[64] = "";
-        char cmd[128];
-        snprintf(cmd, sizeof(cmd), "%s --version 2>/dev/null | head -1", sh);
-        char verline[256];
-        if (run_cmd(cmd, verline, sizeof(verline)) == 0) {
-            /* Extract version number */
-            char *v = strstr(verline, " ");
-            if (v) {
-                char *v2 = strstr(v + 1, " ");
-                if (v2) {
-                    size_t len = v2 - (v + 1);
-                    if (len < 32) { strncpy(ver, v + 1, len); ver[len] = '\0'; }
-                }
-            }
+    if (!sh) { strncpy(s->shell, "unknown", MAX_STR-1); return; }
+    const char *base = strrchr(sh, '/');
+    base = base ? base + 1 : sh;
+    char cmd[128], vline[256], ver[32]="";
+    snprintf(cmd, sizeof(cmd), "%s --version 2>/dev/null | head -1", sh);
+    if (run_cmd(cmd, vline, sizeof(vline)) == 0) {
+        char *p = vline;
+        while (*p && !isdigit((unsigned char)*p)) p++;
+        if (*p) {
+            char *e = p;
+            while (*e && (isdigit((unsigned char)*e) || *e == '.')) e++;
+            size_t l = (size_t)(e - p);
+            if (l > 0 && l < 32) { memcpy(ver, p, l); ver[l] = '\0'; }
         }
-        if (ver[0])
-            snprintf(info->shell, MAX_INFO_LEN, "%s %s", base, ver);
-        else
-            snprintf(info->shell, MAX_INFO_LEN, "%s", base);
-    } else {
-        strncpy(info->shell, "unknown", MAX_INFO_LEN - 1);
     }
+    if (ver[0]) snprintf(s->shell, MAX_STR, "%s %s", base, ver);
+    else        snprintf(s->shell, MAX_STR, "%s", base);
 }
 
-static void get_cpu(SysInfo *info) {
-    char line[512];
+static void get_cpu(SysInfo *s) {
     FILE *f = fopen("/proc/cpuinfo", "r");
-    if (!f) { strncpy(info->cpu, "Unknown CPU", MAX_INFO_LEN-1); return; }
-    char model[MAX_INFO_LEN] = "";
+    if (!f) { strncpy(s->cpu, "Unknown CPU", MAX_STR-1); return; }
+    char line[512], model[MAX_STR]="";
     int cores = 0;
     while (fgets(line, sizeof(line), f)) {
         if (strncmp(line, "model name", 10) == 0 && model[0] == '\0') {
-            char *colon = strchr(line, ':');
-            if (colon) {
-                char *start = colon + 2;
-                size_t len = strlen(start);
-                if (len > 0 && start[len-1] == '\n') start[len-1] = '\0';
-                strncpy(model, start, MAX_INFO_LEN - 1);
+            char *c = strchr(line, ':');
+            if (c) {
+                char *p = c + 2;
+                size_t l = strlen(p);
+                if (l > 0 && p[l-1] == '\n') p[l-1] = '\0';
+                strncpy(model, p, MAX_STR-1);
             }
         }
         if (strncmp(line, "processor", 9) == 0) cores++;
     }
     fclose(f);
+    if (model[0] == '\0') strncpy(model, "Unknown CPU", MAX_STR-1);
 
-    /* Clean up model name: remove extra spaces */
-    if (model[0] == '\0') strncpy(model, "Unknown CPU", MAX_INFO_LEN - 1);
-
-    /* Remove "(R)", "(TM)" clutter for display */
-    char clean[MAX_INFO_LEN];
-    char *src = model, *dst = clean;
-    while (*src && (dst - clean) < MAX_INFO_LEN - 1) {
-        if (strncmp(src, "(R)", 3) == 0) { src += 3; continue; }
-        if (strncmp(src, "(TM)", 4) == 0) { src += 4; continue; }
-        *dst++ = *src++;
+    /* strip (R) (TM), collapse spaces */
+    char tmp[MAX_STR]; char *d = tmp;
+    for (char *p = model; *p && (d-tmp) < MAX_STR-1; ) {
+        if (strncmp(p,"(R)",3)==0){ p+=3; continue; }
+        if (strncmp(p,"(TM)",4)==0){ p+=4; continue; }
+        *d++ = *p++;
     }
-    *dst = '\0';
+    *d = '\0';
+    char out[MAX_STR]; d = out;
+    int sp = 0;
+    for (char *p=tmp; *p && (d-out)<MAX_STR-1; p++) {
+        if (*p==' '){ if(!sp){*d++=' '; sp=1;} }
+        else { *d++=*p; sp=0; }
+    }
+    *d = '\0';
+    /* trim leading/trailing space */
+    char *start = out;
+    while (*start == ' ') start++;
+    size_t slen = strlen(start);
+    while (slen > 0 && start[slen-1] == ' ') slen--;
+    start[slen] = '\0';
 
-    if (cores > 1)
-        snprintf(info->cpu, MAX_INFO_LEN, "%s (%d)", clean, cores);
-    else
-        snprintf(info->cpu, MAX_INFO_LEN, "%s", clean);
+    snprintf(s->cpu, MAX_STR, "%s (%d)", start, cores);
 }
 
-static void get_memory(SysInfo *info) {
-    struct sysinfo si;
-    if (sysinfo(&si) != 0) { strncpy(info->memory, "unknown", MAX_INFO_LEN-1); return; }
-    long total_mb = (si.totalram * si.mem_unit) / (1024 * 1024);
-    long used_mb  = ((si.totalram - si.freeram - si.bufferram) * si.mem_unit) / (1024 * 1024);
-    /* Also account for cached */
-    char memline[256];
-    long cached_mb = 0;
+static void get_memory(SysInfo *s) {
+    long total_kb=0, avail_kb=0;
     FILE *f = fopen("/proc/meminfo", "r");
-    if (f) {
-        while (fgets(memline, sizeof(memline), f)) {
-            long val;
-            if (sscanf(memline, "Cached: %ld", &val) == 1) { cached_mb = val / 1024; }
-            if (sscanf(memline, "Buffers: %ld", &val) == 1) { /* already in si */ (void)val; }
-        }
-        fclose(f);
+    if (!f) { strncpy(s->memory, "unknown", MAX_STR-1); return; }
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        long v;
+        if (sscanf(line, "MemTotal: %ld", &v) == 1)     total_kb = v;
+        if (sscanf(line, "MemAvailable: %ld", &v) == 1) avail_kb = v;
     }
-    used_mb -= cached_mb;
-    if (used_mb < 0) used_mb = 0;
-    snprintf(info->memory, MAX_INFO_LEN, "%ldMiB / %ldMiB", used_mb, total_mb);
+    fclose(f);
+    long used_mb  = (total_kb - avail_kb) / 1024;
+    long total_mb = total_kb / 1024;
+    snprintf(s->memory, MAX_STR, "%ldMiB / %ldMiB", used_mb, total_mb);
 }
 
-static void get_disk(SysInfo *info) {
+static void get_disk(SysInfo *s) {
     struct statvfs sv;
-    if (statvfs("/", &sv) != 0) { strncpy(info->disk, "unknown", MAX_INFO_LEN-1); return; }
-    unsigned long long total = (unsigned long long)sv.f_blocks * sv.f_frsize;
-    unsigned long long free  = (unsigned long long)sv.f_bfree  * sv.f_frsize;
-    unsigned long long used  = total - free;
-    /* Convert to GiB */
-    double used_g  = used  / (1024.0 * 1024.0 * 1024.0);
-    double total_g = total / (1024.0 * 1024.0 * 1024.0);
-    snprintf(info->disk, MAX_INFO_LEN, "%.1fGiB / %.1fGiB (%.0f%%)",
-             used_g, total_g, (used_g / total_g) * 100.0);
+    if (statvfs("/", &sv) != 0) { strncpy(s->disk, "unknown", MAX_STR-1); return; }
+    unsigned long long tot = (unsigned long long)sv.f_blocks * sv.f_frsize;
+    unsigned long long fre = (unsigned long long)sv.f_bfree  * sv.f_frsize;
+    double used_g  = (tot - fre) / 1073741824.0;
+    double total_g = tot / 1073741824.0;
+    snprintf(s->disk, MAX_STR, "%.1fGiB / %.1fGiB (%.0f%%)",
+             used_g, total_g, total_g > 0 ? (used_g/total_g)*100.0 : 0.0);
 }
 
-static void get_packages(SysInfo *info) {
-    char count[64] = "0";
-    /* Try dpkg */
-    if (run_cmd("dpkg -l 2>/dev/null | grep -c '^ii'", count, sizeof(count)) == 0 && atoi(count) > 0) {
-        snprintf(info->packages, MAX_INFO_LEN, "%s (dpkg)", count);
-        return;
+static void get_packages(SysInfo *s) {
+    /* Each entry: shell command that prints a count, and the manager name */
+    static const struct { const char *cmd; const char *label; } pms[] = {
+        { "dpkg -l 2>/dev/null | grep -c '^ii'",               "dpkg"    },
+        { "rpm -qa --queryformat='.' 2>/dev/null | wc -c",     "rpm"     },
+        { "pacman -Qq 2>/dev/null | wc -l",                    "pacman"  },
+        { "apk info 2>/dev/null | wc -l",                      "apk"     },
+        { "xbps-query -l 2>/dev/null | wc -l",                 "xbps"    },
+        { "eopkg list-installed 2>/dev/null | wc -l",          "eopkg"   },
+        { "nix-env -q 2>/dev/null | wc -l",                    "nix"     },
+        { "flatpak list 2>/dev/null | wc -l",                  "flatpak" },
+        { "snap list 2>/dev/null | tail -n +2 | wc -l",        "snap"    },
+        { "brew list 2>/dev/null | wc -l",                     "brew"    },
+        { NULL, NULL }
+    };
+
+    char result[MAX_STR] = "", buf[64];
+    int found = 0;
+    for (int i = 0; pms[i].cmd; i++) {
+        if (run_cmd(pms[i].cmd, buf, sizeof(buf)) == 0 && atoi(buf) > 0) {
+            char part[80];
+            snprintf(part, sizeof(part), "%s%d (%s)", found ? ", " : "", atoi(buf), pms[i].label);
+            size_t rem = MAX_STR - strlen(result) - 1;
+            if (rem > strlen(part)) strncat(result, part, rem);
+            found = 1;
+        }
     }
-    /* Try rpm */
-    if (run_cmd("rpm -qa 2>/dev/null | wc -l", count, sizeof(count)) == 0 && atoi(count) > 0) {
-        snprintf(info->packages, MAX_INFO_LEN, "%s (rpm)", count);
-        return;
-    }
-    /* Try pacman */
-    if (run_cmd("pacman -Q 2>/dev/null | wc -l", count, sizeof(count)) == 0 && atoi(count) > 0) {
-        snprintf(info->packages, MAX_INFO_LEN, "%s (pacman)", count);
-        return;
-    }
-    strncpy(info->packages, "unknown", MAX_INFO_LEN - 1);
+    strncpy(s->packages, found ? result : "unknown", MAX_STR-1);
+    s->packages[MAX_STR-1] = '\0';
 }
 
-static void get_terminal(SysInfo *info) {
-    const char *term = getenv("TERM_PROGRAM");
-    if (!term) term = getenv("TERM");
-    if (term)
-        strncpy(info->terminal, term, MAX_INFO_LEN - 1);
-    else
-        strncpy(info->terminal, "unknown", MAX_INFO_LEN - 1);
+static void get_terminal(SysInfo *s) {
+    const char *t = getenv("TERM_PROGRAM");
+    if (!t) t = getenv("TERM");
+    if (!t) t = "unknown";
+    strncpy(s->terminal, t, MAX_STR-1);
+    s->terminal[MAX_STR-1] = '\0';
 }
 
-/* Info lines to display (label + value pairs) */
-typedef struct {
-    const char *label;
-    char value[MAX_INFO_LEN];
-} InfoLine;
+/* ══════════════════════════════════════════════════════════════════
+   RENDERING
+   ══════════════════════════════════════════════════════════════════ */
 
-static void print_color_blocks(void) {
-    /* Normal colors */
-    printf("   ");
-    printf("%s   " RESET, BG_BLACK);
-    printf("%s   " RESET, BG_RED);
-    printf("%s   " RESET, BG_GREEN);
-    printf("%s   " RESET, BG_YELLOW);
-    printf("%s   " RESET, BG_BLUE);
-    printf("%s   " RESET, BG_MAGENTA);
-    printf("%s   " RESET, BG_CYAN);
-    printf("%s   " RESET, BG_WHITE);
-    printf("\n   ");
-    /* Bright colors */
-    printf("%s   " RESET, BG_BRIGHT_BLACK);
-    printf("%s   " RESET, BG_BRIGHT_RED);
-    printf("%s   " RESET, BG_BRIGHT_GREEN);
-    printf("%s   " RESET, BG_BRIGHT_YELLOW);
-    printf("%s   " RESET, BG_BRIGHT_BLUE);
-    printf("%s   " RESET, BG_BRIGHT_MAGENTA);
-    printf("%s   " RESET, BG_BRIGHT_CYAN);
-    printf("%s   " RESET, BG_BRIGHT_WHITE);
-    printf(RESET "\n");
-}
-
-/* Visible length of a string (ignoring ANSI escape sequences) */
+/* Visible (printable) character width, skipping ANSI escapes */
 static int visible_len(const char *s) {
     int len = 0;
     while (*s) {
@@ -350,106 +856,121 @@ static int visible_len(const char *s) {
             while (*s && *s != 'm') s++;
             if (*s) s++;
         } else {
-            len++;
+            unsigned char c = (unsigned char)*s;
+            if ((c & 0xC0) != 0x80) len++;  /* UTF-8 leading byte */
             s++;
         }
     }
     return len;
 }
 
-int main(void) {
-    SysInfo info;
-    memset(&info, 0, sizeof(info));
+typedef struct { const char *label; char value[MAX_STR]; } InfoLine;
 
-    get_username(&info);
-    get_hostname(&info);
-    get_os(&info);
-    get_kernel(&info);
-    get_uptime(&info);
-    get_shell(&info);
-    get_cpu(&info);
-    get_memory(&info);
-    get_disk(&info);
-    get_arch(&info);
-    get_packages(&info);
-    get_terminal(&info);
-
-    /* Build info lines */
-    InfoLine lines[MAX_LINES];
+static void render(const SysInfo *si, const Logo *logo) {
+    InfoLine info[MAX_INFO + 4];
     int n = 0;
 
-#define ADD(lbl, val) do { lines[n].label = (lbl); strncpy(lines[n].value, (val), MAX_INFO_LEN-1); n++; } while(0)
+#define ADD(lbl, val) do { \
+    if (n < MAX_INFO+4) { \
+        info[n].label = (lbl); \
+        strncpy(info[n].value, (val), MAX_STR-1); \
+        info[n].value[MAX_STR-1] = '\0'; \
+        n++; \
+    } \
+} while (0)
 
-    /* user@host header */
-    ADD(NULL, "");  /* placeholder for user@host */
-    ADD(NULL, "");  /* placeholder for separator */
-    ADD("OS",       info.os);
-    ADD("Host",     info.hostname);
-    ADD("Kernel",   info.kernel);
-    ADD("Uptime",   info.uptime);
-    ADD("Packages", info.packages);
-    ADD("Shell",    info.shell);
-    ADD("Terminal", info.terminal);
-    ADD("CPU",      info.cpu);
-    ADD("Arch",     info.arch);
-    ADD("Memory",   info.memory);
-    ADD("Disk (/)", info.disk);
-    ADD(NULL, "");  /* blank */
-    ADD(NULL, "");  /* color blocks row 1 */
-    ADD(NULL, "");  /* color blocks row 2 */
-
+    ADD(NULL, "");         /* user@host */
+    ADD(NULL, "");         /* separator */
+    ADD("OS",        si->os);
+    ADD("Kernel",    si->kernel);
+    ADD("Arch",      si->arch);
+    ADD("Uptime",    si->uptime);
+    ADD("Packages",  si->packages);
+    ADD("Shell",     si->shell);
+    ADD("Terminal",  si->terminal);
+    ADD("CPU",       si->cpu);
+    ADD("Memory",    si->memory);
+    ADD("Disk (/)",  si->disk);
+    ADD(NULL, "");         /* blank */
+    ADD(NULL, "");         /* palette 1 */
+    ADD(NULL, "");         /* palette 2 */
 #undef ADD
 
     /* Fill user@host */
-    snprintf(lines[0].value, MAX_INFO_LEN, "%s@%s", info.user, info.hostname);
+    snprintf(info[0].value, MAX_STR, "%s@%s", si->user, si->hostname);
+    /* Fill separator */
+    int seplen = (int)(strlen(si->user) + 1 + strlen(si->hostname));
+    if (seplen >= MAX_STR) seplen = MAX_STR - 1;
+    memset(info[1].value, '-', (size_t)seplen);
+    info[1].value[seplen] = '\0';
 
-    /* Separator line (dashes matching user@host length) */
-    int sep_len = (int)strlen(info.user) + 1 + (int)strlen(info.hostname);
-    if (sep_len >= MAX_INFO_LEN) sep_len = MAX_INFO_LEN - 1;
-    memset(lines[1].value, '-', sep_len);
-    lines[1].value[sep_len] = '\0';
+    const char *col = logo->label_color;
+    int logo_w = logo->width;
+    int total  = logo->count > n ? logo->count : n;
 
-    int total = logo_lines > n ? logo_lines : n;
+    int palette1 = n - 2;
+    int palette2 = n - 1;
 
     printf("\n");
     for (int i = 0; i < total; i++) {
-        /* Print logo line */
-        if (i < logo_lines) {
-            printf("   %s" RESET, ubuntu_logo[i]);
-            /* Pad to 45 visible chars */
-            int vl = visible_len(ubuntu_logo[i]);
-            for (int p = vl; p < 46; p++) printf(" ");
+        /* Logo */
+        if (i < logo->count) {
+            printf("   %s" R, logo->lines[i]);
+            int pad = logo_w - visible_len(logo->lines[i]);
+            while (pad-- > 0) printf(" ");
+            printf("  ");
         } else {
-            /* Pad blank logo area */
-            printf("   %*s", 46, "");
+            printf("   %*s  ", logo_w, "");
         }
 
-        /* Print info line */
+        /* Info */
         if (i < n) {
             if (i == 0) {
                 /* user@host */
-                printf(BRIGHT_GREEN BOLD "%s" RESET "@" BRIGHT_GREEN BOLD "%s" RESET,
-                       info.user, info.hostname);
+                printf(BGRN BD "%s" R "@" BGRN BD "%s" R, si->user, si->hostname);
             } else if (i == 1) {
                 /* separator */
-                printf(RESET "%s", lines[i].value);
-            } else if (i == n - 2) {
-                /* color blocks row 1 */
-                printf("%s   %s   %s   %s   %s   %s   %s   %s   " RESET,
-                       BG_BLACK, BG_RED, BG_GREEN, BG_YELLOW,
-                       BG_BLUE, BG_MAGENTA, BG_CYAN, BG_WHITE);
-            } else if (i == n - 1) {
-                /* color blocks row 2 */
-                printf("%s   %s   %s   %s   %s   %s   %s   %s   " RESET,
-                       BG_BRIGHT_BLACK, BG_BRIGHT_RED, BG_BRIGHT_GREEN, BG_BRIGHT_YELLOW,
-                       BG_BRIGHT_BLUE, BG_BRIGHT_MAGENTA, BG_BRIGHT_CYAN, BG_BRIGHT_WHITE);
-            } else if (lines[i].label) {
-                printf(BRIGHT_RED BOLD "%s" RESET ": %s",
-                       lines[i].label, lines[i].value);
+                printf("%s", info[1].value);
+            } else if (i == palette1) {
+                printf(bg0"   "bg1"   "bg2"   "bg3"   "bg4"   "bg5"   "bg6"   "bg7"   "R);
+            } else if (i == palette2) {
+                printf(bg8"   "bg9"   "bg10"   "bg11"   "bg12"   "bg13"   "bg14"   "bg15"   "R);
+            } else if (info[i].label) {
+                printf(BD "%s%s" R ": %s", col, info[i].label, info[i].value);
             }
         }
         printf("\n");
     }
     printf("\n");
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   MAIN
+   ══════════════════════════════════════════════════════════════════ */
+
+int main(void) {
+    SysInfo si;
+    memset(&si, 0, sizeof(si));
+
+    si.distro = detect_distro(si.distro_id, sizeof(si.distro_id));
+
+    get_user(&si);
+    get_hostname(&si);
+    get_os(&si);
+    get_kernel(&si);
+    get_arch(&si);
+    get_uptime(&si);
+    get_shell(&si);
+    get_cpu(&si);
+    get_memory(&si);
+    get_disk(&si);
+    get_packages(&si);
+    get_terminal(&si);
+
+    const Logo *logo = &logos[si.distro];
+    if (!logo->lines || logo->count == 0)
+        logo = &logos[DISTRO_UNKNOWN];
+
+    render(&si, logo);
     return 0;
 }
