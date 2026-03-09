@@ -507,25 +507,6 @@ static const Logo logos[DISTRO_COUNT] = {
     LOGO(DISTRO_UBUNTU,      logo_ubuntu,      45, BRED),
     LOGO(DISTRO_DEBIAN,      logo_debian,      18, RED),
     LOGO(DISTRO_ARCH,        logo_arch,        36, BCYN),
-    LOGO(DISTRO_MANJARO,     logo_manjaro,     14, BGRN),
-    LOGO(DISTRO_FEDORA,      logo_fedora,      36, BBLU),
-    LOGO(DISTRO_CENTOS,      logo_centos,      26, BYLW),
-    LOGO(DISTRO_RHEL,        logo_centos,      26, BRED),
-    LOGO(DISTRO_OPENSUSE,    logo_opensuse,    44, BGRN),
-    LOGO(DISTRO_ALPINE,      logo_alpine,      18, BBLU),
-    LOGO(DISTRO_GENTOO,      logo_gentoo,      36, BMAG),
-    LOGO(DISTRO_VOID,        logo_void,        20, BGRN),
-    LOGO(DISTRO_MINT,        logo_mint,        40, BGRN),
-    LOGO(DISTRO_POPOS,       logo_popos,       29, BCYN),
-    LOGO(DISTRO_KALI,        logo_kali,        34, BBLU),
-    LOGO(DISTRO_ENDEAVOUROS, logo_endeavouros, 32, BMAG),
-    LOGO(DISTRO_GARUDA,      logo_garuda,      28, BRED),
-    LOGO(DISTRO_NIXOS,       logo_nixos,       22, BBLU),
-    LOGO(DISTRO_RASPBIAN,    logo_raspbian,    18, BRED),
-    LOGO(DISTRO_SLACKWARE,   logo_slackware,   18, BBLU),
-    LOGO(DISTRO_MX,          logo_mx,          36, BWHT),
-    LOGO(DISTRO_ZORIN,       logo_zorin,       36, BBLU),
-    LOGO(DISTRO_ELEMENTARY,  logo_elementary,  25, BBLU),
 };
 
 /* ══════════════════════════════════════════════════════════════════
@@ -577,44 +558,6 @@ static DistroID detect_distro(char *id_out, size_t id_len) {
         { "ubuntu",              DISTRO_UBUNTU      },
         { "debian",              DISTRO_DEBIAN      },
         { "arch",                DISTRO_ARCH        },
-        { "manjaro",             DISTRO_MANJARO     },
-        { "fedora",              DISTRO_FEDORA      },
-        { "centos",              DISTRO_CENTOS      },
-        { "rhel",                DISTRO_RHEL        },
-        { "opensuse",            DISTRO_OPENSUSE    },
-        { "opensuse-leap",       DISTRO_OPENSUSE    },
-        { "opensuse-tumbleweed", DISTRO_OPENSUSE    },
-        { "sles",                DISTRO_OPENSUSE    },
-        { "alpine",              DISTRO_ALPINE      },
-        { "gentoo",              DISTRO_GENTOO      },
-        { "void",                DISTRO_VOID        },
-        { "linuxmint",           DISTRO_MINT        },
-        { "pop",                 DISTRO_POPOS       },
-        { "kali",                DISTRO_KALI        },
-        { "endeavouros",         DISTRO_ENDEAVOUROS },
-        { "garuda",              DISTRO_GARUDA      },
-        { "nixos",               DISTRO_NIXOS       },
-        { "raspbian",            DISTRO_RASPBIAN    },
-        { "slackware",           DISTRO_SLACKWARE   },
-        { "mx",                  DISTRO_MX          },
-        { "zorin",               DISTRO_ZORIN       },
-        { "elementary",          DISTRO_ELEMENTARY  },
-        /* common derivatives */
-        { "kubuntu",             DISTRO_UBUNTU      },
-        { "lubuntu",             DISTRO_UBUNTU      },
-        { "xubuntu",             DISTRO_UBUNTU      },
-        { "ubuntu-mate",         DISTRO_UBUNTU      },
-        { "neon",                DISTRO_UBUNTU      },
-        { "pureos",              DISTRO_DEBIAN      },
-        { "lmde",                DISTRO_MINT        },
-        { "antergos",            DISTRO_ARCH        },
-        { "blackarch",           DISTRO_ARCH        },
-        { "artix",               DISTRO_ARCH        },
-        { "arcolinux",           DISTRO_ARCH        },
-        { "scientific",          DISTRO_CENTOS      },
-        { "ol",                  DISTRO_RHEL        },
-        { "almalinux",           DISTRO_RHEL        },
-        { "rocky",               DISTRO_RHEL        },
         { NULL, 0 }
     };
 
@@ -626,9 +569,6 @@ static DistroID detect_distro(char *id_out, size_t id_len) {
     if (strstr(like_lc, "ubuntu"))  return DISTRO_UBUNTU;
     if (strstr(like_lc, "debian"))  return DISTRO_DEBIAN;
     if (strstr(like_lc, "arch"))    return DISTRO_ARCH;
-    if (strstr(like_lc, "fedora"))  return DISTRO_FEDORA;
-    if (strstr(like_lc, "rhel"))    return DISTRO_RHEL;
-    if (strstr(like_lc, "suse"))    return DISTRO_OPENSUSE;
 
     return DISTRO_UNKNOWN;
 }
