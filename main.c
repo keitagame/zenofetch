@@ -162,11 +162,6 @@ static const char *logo_arch[] = {
     BCYN " .`                                 `",
 };
 
-
-
-
-
-
 /* Unknown / Generic Linux */
 static const char *logo_unknown[] = {
     BWHT "        #####",
